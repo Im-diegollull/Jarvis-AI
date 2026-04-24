@@ -175,7 +175,7 @@ def welcome_sequence() -> None:
     threading.Thread(target=open_workspace, daemon=True).start()  # apps abren en paralelo
     time.sleep(1.5)                                        # intro musical
 
-    say("Welcome home, sir.")
+    say("Welcome home, sir. Congratulations on the opening ceremonies—they were such a success, as was your Senate hearing. And may I say how refreshing it is to finally see you with your clothing on, sir.")
     say("Here is tonight's coding idea.")
     say(idea)
 
