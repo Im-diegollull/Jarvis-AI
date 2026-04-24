@@ -8,7 +8,6 @@ La canción se pre-descarga al iniciar para que suene al instante.
 import sounddevice as sd
 import numpy as np
 import subprocess
-import webbrowser
 import threading
 import tempfile
 import glob
@@ -134,11 +133,45 @@ def say(text: str) -> None:
 
 
 # ── Workspace ─────────────────────────────────────────────────────────────────
+#
+# Layout detectado:
+#   MacBook  (primary)  :   0,    0  →  1470 × 1007
+#   Externo  (izquierda): -1920,  0  →  1920 × 1080
+#
+# Pantalla MacBook  → VS Code (full)
+# Monitor externo   → mitad izquierda: Claude · mitad derecha: TradingView
+
+_CHROME = "Google Chrome"
+
+# Bounds: (left, top, right, bottom) en coordenadas de pantalla macOS
+_CLAUDE_BOUNDS    = (-1920, 0,  -960,  1080)   # externo izquierda
+_TRADING_BOUNDS   = (-960,  0,     0,  1080)   # externo derecha
+
+
+def _chrome_window(url: str, bounds: tuple[int, int, int, int]) -> None:
+    l, t, r, b = bounds
+    script = f"""
+    tell application "{_CHROME}"
+        make new window
+        set URL of active tab of front window to "{url}"
+        set bounds of front window to {{{l}, {t}, {r}, {b}}}
+    end tell
+    """
+    subprocess.Popen(["osascript", "-e", script])
+
 
 def open_workspace() -> None:
+    # VS Code — MacBook
     subprocess.Popen(["open", "-a", "Visual Studio Code"])
-    time.sleep(0.4)
-    webbrowser.open("https://www.google.com")
+    time.sleep(0.6)
+
+    # Claude.ai — externo izquierda
+    _chrome_window("https://claude.ai",                _CLAUDE_BOUNDS)
+    time.sleep(0.5)
+
+    # TradingView mercados — externo derecha
+    _chrome_window("https://www.tradingview.com/markets/", _TRADING_BOUNDS)
+    time.sleep(0.3)
 
 
 # ── Welcome sequence ──────────────────────────────────────────────────────────
@@ -152,7 +185,7 @@ def welcome_sequence() -> None:
     start_music()     # música arranca y bloquea hasta que suena de verdad
     time.sleep(1.5)   # intro musical antes de que hable Jarvis
 
-    say("Welcome home, sir. Congratulations, sir, on the opening ceremony. It was such a success. May I say how refreshing it is to finally see you in a video with your clothing on, sir.")
+    say("Welcome home, sir. Congratulations sir on the opening ceremony. It was such a success. May I say how refreshing it is to finally see you in a video with your clothing on sir.")
     say("Here is tonight's coding idea.")
     say(idea)
     say("Opening your workspace.")
