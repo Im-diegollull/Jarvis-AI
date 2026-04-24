@@ -8,16 +8,26 @@ import sounddevice as sd
 import numpy as np
 import subprocess
 import webbrowser
+import tempfile
 import time
 import random
 import sys
+import os
+
+from dotenv import load_dotenv
+from elevenlabs.client import ElevenLabs
+
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+
+_eleven = ElevenLabs(api_key=os.environ["ELEVENLABS_API_KEY"])
+JARVIS_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb"  # George — British, deep (free tier)
 
 # ── Audio tuning ──────────────────────────────────────────────────────────────
-SAMPLE_RATE   = 44100
-BLOCK_SIZE    = 1024
-CLAP_THRESHOLD = 0.25   # RMS volume level that counts as a clap (0.0–1.0)
+SAMPLE_RATE    = 44100
+BLOCK_SIZE     = 1024
+CLAP_THRESHOLD = 0.25   # RMS level that counts as a clap (0.0–1.0)
 MIN_GAP        = 0.15   # seconds between claps (debounce)
-MAX_GAP        = 1.8    # max seconds between the two claps to count as a double
+MAX_GAP        = 1.8    # max seconds between two claps to count as a double
 NUM_CLAPS      = 2
 
 # ── Coding ideas Jarvis can suggest ───────────────────────────────────────────
@@ -37,22 +47,28 @@ CODING_IDEAS = [
 ]
 
 
-def say(text: str, voice: str = "Alex") -> None:
-    """macOS TTS — blocking so lines play in order."""
-    subprocess.run(["say", "-v", voice, text])
+def say(text: str) -> None:
+    """Stream TTS from ElevenLabs Jarvis voice and play via afplay."""
+    audio = b"".join(
+        _eleven.text_to_speech.convert(
+            voice_id=JARVIS_VOICE_ID,
+            text=text,
+            model_id="eleven_multilingual_v2",
+            output_format="mp3_44100_128",
+        )
+    )
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+        f.write(audio)
+        tmp_path = f.name
+    subprocess.run(["afplay", tmp_path], check=True)
+    os.unlink(tmp_path)
 
 
 def open_workspace() -> None:
-    """Open VS Code, Google, YouTube, and play the song."""
-    # VS Code
     subprocess.Popen(["open", "-a", "Visual Studio Code"])
     time.sleep(0.4)
-
-    # Google
     webbrowser.open("https://www.google.com")
     time.sleep(0.4)
-
-    # YouTube — Should I Stay or Should I Go (The Clash official MV)
     webbrowser.open(
         "https://www.youtube.com/results?search_query=Should+I+Stay+or+Should+I+Go+The+Clash"
     )
@@ -62,11 +78,8 @@ def welcome_sequence() -> None:
     idea = random.choice(CODING_IDEAS)
 
     say("Welcome home, sir.")
-    time.sleep(0.3)
-    say("Here is tonight's coding idea:")
-    time.sleep(0.2)
+    say("Here is tonight's coding idea.")
     say(idea)
-    time.sleep(0.4)
     say("Opening your workspace.")
 
     print(f"\n  Idea: {idea}\n")
@@ -97,14 +110,13 @@ def listen_for_claps() -> None:
                 last_clap_time = now
                 print(f"  Clap {len(clap_times)} detected  (rms={rms:.3f})")
 
-                # Keep only claps within the rolling MAX_GAP window
                 clap_times = [t for t in clap_times if now - t <= MAX_GAP]
 
                 if len(clap_times) >= NUM_CLAPS:
                     print("\n  Double clap confirmed!\n")
                     clap_times = []
                     last_clap_time = 0.0
-                    return  # hand control back to caller
+                    return
 
 
 def main() -> None:
