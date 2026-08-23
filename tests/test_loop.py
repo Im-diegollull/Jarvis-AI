@@ -2,6 +2,7 @@
 
 import copy
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -161,13 +162,51 @@ def test_system_prompt_is_frozen_and_cached(registry):
     assert "Current time" not in first["system"][0]["text"]
 
 
-def test_volatile_context_goes_after_the_history(registry):
+def test_volatile_context_goes_after_the_history_on_opus(registry):
+    """Opus takes operator context as a mid-conversation system message."""
     client = FakeClient([message([block(type="text", text="a")])])
-    agent = Agent(registry, client=client)
+    agent = Agent(registry, client=client, model="claude-opus-5")
     agent.send("hola")
     messages = client.requests[0]["messages"]
     assert messages[-1]["role"] == "system"
     assert "Current time" in messages[-1]["content"]
+
+
+def test_volatile_context_rides_in_the_user_turn_on_sonnet(registry):
+    """Sonnet rejects role:system mid-conversation — the context inlines instead."""
+    client = FakeClient([message([block(type="text", text="a")])])
+    agent = Agent(registry, client=client, model="claude-sonnet-5")
+    agent.send("hola")
+    messages = client.requests[0]["messages"]
+    assert all(m["role"] != "system" for m in messages)
+    assert "Current time" in messages[0]["content"][0]["text"]
+    assert messages[0]["content"][-1]["text"] == "hola"
+
+
+def test_a_rejected_system_message_is_recovered_not_lost(registry):
+    """If the capability table is ever wrong, the turn must survive it."""
+    import anthropic
+
+    class Rejecting(FakeClient):
+        def __init__(self, responses):
+            super().__init__(responses)
+            self.first = True
+
+        def _stream(self, **request):
+            if self.first:
+                self.first = False
+                raise anthropic.BadRequestError(
+                    "role 'system' is not supported on this model",
+                    response=MagicMock(status_code=400, headers={}),
+                    body=None,
+                )
+            return super()._stream(**request)
+
+    client = Rejecting([message([block(type="text", text="recuperado")])])
+    agent = Agent(registry, client=client, model="claude-opus-5")
+    assert agent.send("hola") == "recuperado"
+    assert agent.system_messages_supported is False
+    assert all(m["role"] != "system" for m in client.requests[-1]["messages"])
 
 
 def test_cache_breakpoints_stay_within_budget(registry):

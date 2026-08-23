@@ -31,9 +31,16 @@ RUNTIME_DIRS = (JARVIS_HOME, MEMORY_DIR, SESSIONS_DIR, LOGS_DIR, CREDENTIALS_DIR
 TOOL_LOG = LOGS_DIR / "tools.jsonl"
 
 # ── Model ────────────────────────────────────────────────────────────────────
-MODEL = "claude-opus-5"
+# Sonnet for day-to-day: it thinks less, answers faster and costs $3/$15 per
+# million against Opus's $5/$25. Organising a calendar does not need Opus.
+# Override per-run with JARVIS_MODEL for anything genuinely hard.
+MODEL = os.environ.get("JARVIS_MODEL", "claude-sonnet-5")
 MAX_TOKENS = 32_000
 EFFORT = "high"
+# In voice, every extra second of reasoning is a second of silence. Measured on
+# short conversational turns: low is ~250ms faster than medium and roughly 20%
+# terser, which also means less audio to synthesise. Text mode keeps `high`.
+VOICE_EFFORT = "low"
 MAX_TOOL_ROUNDS = 50  # circuit breaker for the agentic loop
 
 # ── Filesystem reach ─────────────────────────────────────────────────────────
@@ -67,7 +74,7 @@ AUDIO_BLOCK = 1024
 # Voice activity detection, tuned by `jarvis calibrate`
 VAD_THRESHOLD = float(os.environ.get("JARVIS_VAD_THRESHOLD", 0.020))
 VAD_START_MS = 150                # sustained speech needed to open a recording
-VAD_SILENCE_MS = 900              # trailing silence that closes it
+VAD_SILENCE_MS = 550              # trailing silence that closes it
 VAD_MAX_MS = 30_000               # hard cap on one utterance
 VAD_MIN_MS = 400                  # shorter than this is a cough, not a sentence
 

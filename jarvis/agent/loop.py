@@ -16,6 +16,20 @@ from jarvis.agent.registry import ToolRegistry
 # Anthropic reroutes it instead of handing us an empty response.
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
+# Mid-conversation `role: "system"` messages are an Opus-family feature. Sonnet
+# rejects them with a 400, so on those models the same context rides inside the
+# user turn instead. Same caching profile, one less API to depend on.
+_SYSTEM_MESSAGE_MODELS = (
+    "claude-opus-5", "claude-opus-4-8", "claude-fable-5", "claude-mythos-5",
+)
+
+# Server-side refusal fallbacks exist only on the models that can return
+# stop_reason "refusal". Sonnet rejects the parameter outright.
+_FALLBACK_MODELS = (
+    "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "claude-fable-5",
+    "claude-mythos-5",
+)
+
 
 class Events:
     """Callbacks the UI layer can override. Defaults are silent."""
@@ -34,12 +48,21 @@ class Agent:
         registry: ToolRegistry,
         events: Events | None = None,
         client: anthropic.Anthropic | None = None,
+        effort: str | None = None,
+        model: str | None = None,
     ) -> None:
+        self.effort = effort or config.EFFORT
         self.registry = registry
         self.events = events or Events()
         self.client = client or anthropic.Anthropic()
+        self.model = model or config.MODEL
         self.messages: list[dict] = []
-        self.system_messages_supported = True
+        self.system_messages_supported = any(
+            self.model.startswith(m) for m in _SYSTEM_MESSAGE_MODELS
+        )
+        self.fallbacks_supported = any(
+            self.model.startswith(m) for m in _FALLBACK_MODELS
+        )
         self.last_usage = None
 
     # ── public API ───────────────────────────────────────────────────────────
@@ -87,7 +110,7 @@ class Agent:
     def _turn(self):
         self._apply_cache_breakpoints()
         request = {
-            "model": config.MODEL,
+            "model": self.model,
             "max_tokens": config.MAX_TOKENS,
             "system": [
                 {
@@ -97,14 +120,28 @@ class Agent:
                 }
             ],
             "thinking": {"type": "adaptive", "display": "summarized"},
-            "output_config": {"effort": config.EFFORT},
+            "output_config": {"effort": self.effort},
             "tools": self.registry.definitions(),
             "messages": self.messages,
-            "betas": [FALLBACK_BETA],
-            "fallbacks": "default",
         }
+        if self.fallbacks_supported:
+            request["betas"] = [FALLBACK_BETA]
+            request["fallbacks"] = "default"
 
         self.events.on_turn_start()
+        try:
+            return self._stream(request)
+        except anthropic.BadRequestError as exc:
+            if "role 'system'" not in str(exc) or not self.system_messages_supported:
+                raise
+            # The capability table was wrong for this model; fold the context
+            # into the user turn and carry on rather than losing the turn.
+            self.system_messages_supported = False
+            self._demote_system_messages()
+            request["messages"] = self.messages
+            return self._stream(request)
+
+    def _stream(self, request: dict):
         with self.client.beta.messages.stream(**request) as stream:
             for event in stream:
                 if event.type != "content_block_delta":
@@ -114,6 +151,20 @@ class Agent:
                 elif event.delta.type == "text_delta":
                     self.events.on_text(event.delta.text)
             return stream.get_final_message()
+
+    def _demote_system_messages(self) -> None:
+        """Rewrite `role: system` turns as context inside the preceding user turn."""
+        rebuilt: list[dict] = []
+        for message in self.messages:
+            if message.get("role") != "system":
+                rebuilt.append(message)
+                continue
+            block = {"type": "text", "text": f"<context>\n{message['content']}\n</context>"}
+            for earlier in reversed(rebuilt):
+                if earlier.get("role") == "user" and isinstance(earlier.get("content"), list):
+                    earlier["content"].insert(0, block)
+                    break
+        self.messages = rebuilt
 
     def _execute(self, tool_uses: list) -> list[dict]:
         results = []

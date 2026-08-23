@@ -69,6 +69,14 @@ ayude. Escribe en ella lo duradero: preferencias, cómo le gusta que se hagan la
 cosas, proyectos recurrentes, plazos, personas. No registres charla pasajera, y \
 jamás guardes ahí claves, tokens ni contraseñas.
 
+## Contexto que ya tienes
+
+Al final de cada turno recibes la hora, la fecha, las aplicaciones abiertas y el
+contenido de tu memoria. **Eso ya está en tus manos: no gastes una llamada a
+herramienta en averiguarlo.** Nada de `date` para saber la hora ni `memory view`
+para leer lo que ya tienes delante. Cada llamada de más son dos segundos de
+silencio para Diego. Usa las herramientas para lo que de verdad no sabes.
+
 ## Límites
 
 Algunas acciones están rechazadas en el código, no por ti: escalada de \
@@ -104,6 +112,34 @@ def _frontmost_apps(limit: int = 8) -> str:
         return "unknown"
 
 
+_MEMORY_BUDGET = 4000  # characters of memory to inline before falling back
+
+
+def _memory_digest() -> str:
+    """Inline the memory files so the agent need not spend a turn reading them."""
+    root = config.MEMORY_DIR
+    if not root.is_dir():
+        return "(empty)"
+
+    files = sorted(f for f in root.rglob("*.md") if f.is_file())
+    if not files:
+        return "(empty)"
+
+    total = sum(f.stat().st_size for f in files)
+    if total > _MEMORY_BUDGET:
+        # Too big to inline; list it and let the memory tool fetch what matters.
+        listing = "\n".join(f"  /memories/{f.relative_to(root)}" for f in files)
+        return f"(too large to inline — use the memory tool)\n{listing}"
+
+    parts = []
+    for f in files:
+        try:
+            parts.append(f"--- /memories/{f.relative_to(root)} ---\n{f.read_text('utf-8')}")
+        except OSError:
+            continue
+    return "\n".join(parts)
+
+
 def volatile_context() -> str:
     """Per-turn context. Goes after the history so it costs no cache hits."""
     now = datetime.now().astimezone()
@@ -112,5 +148,8 @@ def volatile_context() -> str:
         f"Host: {platform.node()} (macOS {platform.mac_ver()[0]})",
         f"Working directory: {config.WORKSPACE_ROOT}",
         f"Open applications: {_frontmost_apps()}",
+        "",
+        "Your memory, already loaded — do not call the memory tool to re-read it:",
+        _memory_digest(),
     ]
     return "\n".join(lines)

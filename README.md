@@ -3,7 +3,8 @@
 A local personal agent for macOS. Talks, listens, and has real access to the
 machine: shell, files, web, calendar and Canvas.
 
-Built on the Claude API (`claude-opus-5`) with a hand-rolled agentic loop.
+Built on the Claude API (`claude-sonnet-5` by default; set `JARVIS_MODEL` to
+switch) with a hand-rolled agentic loop.
 The full plan lives in [CLAUDE.md](CLAUDE.md).
 
 ## Setup

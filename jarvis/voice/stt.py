@@ -6,6 +6,7 @@ it adds no latency of its own.
 """
 
 import io
+import re
 import threading
 import wave
 
@@ -49,7 +50,9 @@ class Listener:
                 if cancel is not None and cancel.is_set():
                     return None
 
-                block, _ = stream.read(config.AUDIO_BLOCK)
+                block, overflowed = stream.read(config.AUDIO_BLOCK)
+                if overflowed:
+                    continue
                 block = block[:, 0]
                 level = _rms(block)
 
@@ -83,8 +86,9 @@ class Listener:
             file=buffer,
             model_id=config.STT_MODEL,
             language_code=config.STT_LANGUAGE,
+            tag_audio_events=False,
         )
-        return (result.text or "").strip()
+        return _strip_non_speech(result.text or "")
 
     def listen(self, cancel: threading.Event | None = None) -> str | None:
         wav = self.record(cancel)
@@ -92,6 +96,18 @@ class Listener:
             return None
         text = self.transcribe(wav)
         return text or None
+
+
+# Scribe annotates breathing, coughs and laughter as [inhala], [carraspeo], …
+# Left in, they become turns of their own and Jarvis answers your breathing.
+_AUDIO_EVENT = re.compile(r"[\[(][^\])]{0,30}[\])]")
+
+
+def _strip_non_speech(text: str) -> str:
+    cleaned = _AUDIO_EVENT.sub(" ", text)
+    cleaned = " ".join(cleaned.split()).strip(" .,-")
+    # What is left must contain actual words, not just punctuation.
+    return cleaned if re.search(r"\w{2,}", cleaned) else ""
 
 
 def _to_wav(samples: np.ndarray) -> bytes:

@@ -100,9 +100,10 @@ de ese bucle.
 
 | Área | Decisión | Por qué |
 |---|---|---|
-| **Modelo** | `claude-opus-5` vía SDK oficial `anthropic` (Python) | Es el modelo más capaz para uso agéntico largo. La API key ya está en el entorno (`ANTHROPIC_API_KEY`). |
+| **Modelo** | `claude-sonnet-5` por defecto, `JARVIS_MODEL` para cambiarlo | **Por coste, no por velocidad.** Medido: Opus es incluso ~10% más rápido en turnos cortos (1.87 s vs 2.11 s a effort bajo), así que la creencia de que Sonnet responde antes no se sostiene aquí. Lo que sí es real: $3/$15 por millón contra $5/$25. Organizar un calendario no necesita Opus. Para trabajo duro, `JARVIS_MODEL=claude-opus-5`. |
 | **Thinking** | `thinking={"type": "adaptive"}` | El modelo decide cuánto razonar por turno. **No usar `budget_tokens`** — devuelve 400 en Opus 5. |
-| **Effort** | `output_config={"effort": "high"}` (subir a `xhigh` en tareas largas) | Balance calidad/coste para trabajo agéntico. |
+| **Effort** | `high` en texto, `low` en voz (`VOICE_EFFORT`) | En voz cada segundo de razonamiento es silencio. Medido: `low` ahorra ~250 ms y produce ~20% menos tokens, que además es menos audio que sintetizar. En texto no hay prisa y se prioriza calidad. |
+| **Compatibilidad de modelo** | El bucle detecta capacidades por modelo | Dos cosas son solo de la familia Opus y Sonnet las rechaza con 400: los mensajes `role: "system"` a mitad de conversación (en Sonnet el contexto va dentro del turno de usuario) y el parámetro `fallbacks`. `Agent` lo resuelve por tabla, y si la tabla se equivoca reintenta en vez de perder el turno. |
 | **Loop** | **Manual** (`while stop_reason == "tool_use"`), no `tool_runner` | Necesitamos 3 cosas que el runner no da limpio: streaming incremental de deltas hacia TTS, gate de aprobación por herramienta antes de ejecutar, y manejo explícito de `pause_turn` (web search). El runner (beta) queda como referencia. |
 | **Streaming** | `client.messages.stream(...)` siempre | `max_tokens` alto + respuestas habladas: sin streaming se cuelga y la voz llega tarde. |
 | **`max_tokens`** | 32000 (streaming) | Margen de sobra; el coste real lo marca lo generado. |
@@ -320,9 +321,15 @@ web que diga "borra todos los archivos" no consigue nada sin que Diego lo aprueb
 **Hecho cuando:** conversación de 5 turnos seguidos por voz, con latencia
 palabra-a-voz < 2 s y barge-in funcionando.
 
-**Medido:** TTS 653 ms al primer audio (`eleven_flash_v2_5`), STT 927 ms,
-primera frase encolada a 175 ms del turno — antes de que el modelo termine de
-escribir. Los 5 turnos y el barge-in los tiene que probar Diego al micro.
+**Medido:** TTS 530 ms al primer audio, STT 927 ms, primera frase encolada a
+175 ms del turno. Optimizaciones aplicadas: memoria precargada en el contexto y
+regla explícita de no consultar la hora por shell (elimina 1-2 viajes de ida y
+vuelta, ~2 s cada uno), `VAD_SILENCE_MS` 900→550, `effort` bajo en voz,
+`optimize_streaming_latency` 4.
+
+**Descartado tras medirlo:** `text_to_speech.convert_realtime` (WebSocket).
+Suena a mejora pero acumula texto antes de sintetizar: 966 ms al primer audio
+contra 530 ms del enfoque por frase. Peor.
 **Commit:** `feat(voice): streaming TTS, VAD speech input, wake word and barge-in`
 
 ---

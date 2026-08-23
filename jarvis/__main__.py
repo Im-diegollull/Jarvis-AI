@@ -140,10 +140,10 @@ def chat() -> int:
 
 # ── voice ────────────────────────────────────────────────────────────────────
 
-def voice(wake: str) -> int:
+def voice(wake: str, barge_in: bool) -> int:
     from jarvis.ui import voice as voice_ui
 
-    return voice_ui.run(wake=wake)
+    return voice_ui.run(wake=wake, barge_in=barge_in)
 
 
 def calibrate() -> int:
@@ -197,6 +197,11 @@ def main() -> int:
         choices=("voice", "claps", "enter"),
         help="how to get Jarvis's attention in voice mode (default: voice)",
     )
+    parser.add_argument(
+        "--no-barge-in",
+        action="store_true",
+        help="do not listen for interruptions while speaking",
+    )
     args = parser.parse_args()
 
     if args.command == "doctor":
@@ -204,7 +209,7 @@ def main() -> int:
     if args.command == "calibrate":
         return calibrate()
     if args.command == "voice":
-        return voice(args.wake)
+        return voice(args.wake, barge_in=not args.no_barge_in)
     if args.command == "legacy":
         return subprocess.call([sys.executable, "-m", "jarvis.legacy.welcome_home"])
     return chat()

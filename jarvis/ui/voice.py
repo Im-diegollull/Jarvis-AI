@@ -58,7 +58,7 @@ class VoiceEvents(Events):
         self.speaker.flush()
 
 
-def run(wake: str = "voice") -> int:
+def run(wake: str = "voice", barge_in: bool = True) -> int:
     """Continuous spoken conversation. `wake` is 'voice', 'claps' or 'enter'."""
     from jarvis.agent.loop import Agent, build_registry
 
@@ -67,13 +67,15 @@ def run(wake: str = "voice") -> int:
     speaker = Speaker()
     listener = Listener()
     events = VoiceEvents(speaker)
-    agent = Agent(build_registry(), events=events)
+    agent = Agent(build_registry(), events=events, effort=config.VOICE_EFFORT)
 
-    monitor = BargeInMonitor(speaker.player, speaker.interrupt)
-    monitor.start()
+    # Started only while Jarvis speaks: PortAudio will not reliably serve two
+    # input streams on one device, and the listener needs the mic to itself.
+    monitor = BargeInMonitor(speaker.player, speaker.interrupt) if barge_in else None
 
     print(f"\n  {BOLD}J.A.R.V.I.S{RESET} — voice mode")
-    print(f"  wake: {wake} · {config.STT_LANGUAGE} · Ctrl-C to quit\n")
+    print(f"  wake: {wake} · {config.STT_LANGUAGE}"
+          f"{'' if barge_in else ' · barge-in off'} · Ctrl-C to quit\n")
 
     try:
         while True:
@@ -96,6 +98,8 @@ def run(wake: str = "voice") -> int:
                 speaker.wait(timeout=15)
                 return 0
 
+            if monitor is not None:
+                monitor.start()
             try:
                 agent.send(said)
             except Exception as exc:
@@ -104,11 +108,11 @@ def run(wake: str = "voice") -> int:
                 continue
             finally:
                 events.finish()
-
-            speaker.wait(timeout=120)
-            if monitor.triggered.is_set():
-                print(f"  {DIM}[interrumpido]{RESET}")
-                monitor.triggered.clear()
+                speaker.wait(timeout=120)
+                if monitor is not None:
+                    if monitor.triggered.is_set():
+                        print(f"  {DIM}[interrumpido]{RESET}")
+                    monitor.stop()   # release the mic before listening again
             print()
 
     except KeyboardInterrupt:
@@ -116,7 +120,8 @@ def run(wake: str = "voice") -> int:
         print("\n  Standing by.\n")
         return 0
     finally:
-        monitor.stop()
+        if monitor is not None:
+            monitor.stop()
 
 
 def _wake(mode: str) -> bool:

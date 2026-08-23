@@ -5,6 +5,7 @@ sketch), or just start talking. Barge-in is the reverse — how Diego takes the
 floor back while Jarvis is mid-sentence.
 """
 
+import logging
 import threading
 import time
 
@@ -30,7 +31,9 @@ def wait_for_claps(count: int = 2, cancel: threading.Event | None = None) -> boo
         while True:
             if cancel is not None and cancel.is_set():
                 return False
-            block, _ = stream.read(config.AUDIO_BLOCK)
+            block, overflowed = stream.read(config.AUDIO_BLOCK)
+            if overflowed:
+                continue
             now = time.monotonic()
             if _rms(block[:, 0]) > config.CLAP_THRESHOLD and (now - last) > config.CLAP_MIN_GAP:
                 claps.append(now)
@@ -43,13 +46,22 @@ def wait_for_claps(count: int = 2, cancel: threading.Event | None = None) -> boo
 class BargeInMonitor:
     """Interrupts the speaker when Diego talks over it.
 
-    The MacBook's speakers bleed into its own microphone, so a naive threshold
-    makes Jarvis interrupt himself. Instead we learn the echo level during the
-    first moments of each utterance, then require the mic to beat it by a
-    margin. Reliable on headphones, approximate on the built-in speakers.
+    Two things make this harder than a threshold:
+
+    * The MacBook's speakers bleed into its own microphone, so Jarvis hears
+      himself. We learn the speaker-to-mic coupling during the first moments of
+      actual audio and require the mic to beat the *predicted* echo, which
+      scales with how loud the current passage is.
+    * PortAudio does not like two input streams on one device. The monitor is
+      therefore started only while Jarvis is speaking and stopped before the
+      listener opens its own stream — they are never live at the same time.
+
+    Reliable on headphones, approximate on the built-in speakers. Turn it off
+    with ``jarvis voice --no-barge-in`` if it misfires.
     """
 
-    _LEARN_SECONDS = 0.4
+    _LEARN_SECONDS = 0.5
+    _MIN_COUPLING_SAMPLES = 8
 
     def __init__(self, player: Player, on_interrupt) -> None:
         self.player = player
@@ -59,6 +71,8 @@ class BargeInMonitor:
         self.triggered = threading.Event()
 
     def start(self) -> None:
+        if self._thread is not None:
+            return
         self._stop.clear()
         self.triggered.clear()
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -67,18 +81,16 @@ class BargeInMonitor:
     def stop(self) -> None:
         self._stop.set()
         if self._thread is not None:
-            self._thread.join(timeout=1.0)
+            self._thread.join(timeout=2.0)
             self._thread = None
 
     def _run(self) -> None:
         blocks_per_second = config.AUDIO_RATE / config.AUDIO_BLOCK
         learn_blocks = int(self._LEARN_SECONDS * blocks_per_second)
-        trigger_blocks = int(config.BARGE_IN_MS / 1000 * blocks_per_second)
+        trigger_blocks = max(1, int(config.BARGE_IN_MS / 1000 * blocks_per_second))
 
-        echo = 0.0
-        learned = 0
+        couplings: list[float] = []
         loud = 0
-        was_playing = False
 
         try:
             with sd.InputStream(
@@ -88,34 +100,39 @@ class BargeInMonitor:
                 dtype="float32",
             ) as stream:
                 while not self._stop.is_set():
-                    block, _ = stream.read(config.AUDIO_BLOCK)
+                    block, overflowed = stream.read(config.AUDIO_BLOCK)
+                    if overflowed:
+                        continue  # a dropped buffer reads as noise; never act on it
+
+                    output = self.player.output_rms
+                    if output <= 0.005:
+                        # Nothing audible coming out: either between sentences
+                        # or waiting on the network. Nothing to talk over.
+                        loud = 0
+                        continue
+
                     level = _rms(block[:, 0])
-                    playing = self.player.is_playing
 
-                    if not playing:
-                        # Between utterances: forget the echo estimate.
-                        was_playing = False
-                        echo, learned, loud = 0.0, 0, 0
+                    if len(couplings) < learn_blocks:
+                        couplings.append(level / output)
                         continue
 
-                    if not was_playing:
-                        was_playing = True
-                        echo, learned, loud = 0.0, 0, 0
+                    # Predict how much of our own voice the mic should be
+                    # hearing right now, and demand a clear margin over it.
+                    coupling = float(np.percentile(couplings, 90))
+                    predicted_echo = coupling * output
+                    floor = max(
+                        config.VAD_THRESHOLD * 2.5,
+                        predicted_echo * config.BARGE_IN_FACTOR,
+                    )
 
-                    if learned < learn_blocks:
-                        echo = max(echo, level)
-                        learned += 1
-                        continue
-
-                    floor = max(config.VAD_THRESHOLD * 2, echo * config.BARGE_IN_FACTOR)
                     loud = loud + 1 if level > floor else 0
                     if loud >= trigger_blocks:
                         self.triggered.set()
                         self.on_interrupt()
-                        loud = 0
-                        learned = 0
-        except sd.PortAudioError:
-            pass  # the mic went away; barge-in is a nicety, not a requirement
+                        return
+        except sd.PortAudioError as exc:
+            logging.getLogger("jarvis.voice").warning("barge-in disabled: %s", exc)
 
 
 def measure_clap_headroom(seconds: float = 3.0) -> float:

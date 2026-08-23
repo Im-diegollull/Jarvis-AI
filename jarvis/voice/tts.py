@@ -6,6 +6,7 @@ worker thread streams it to ElevenLabs and plays it. By the time the model has
 finished writing, the first sentence is already in the air.
 """
 
+import logging
 import queue
 import re
 import threading
@@ -101,7 +102,11 @@ class Speaker:
                 if text:
                     self.player.play(self._stream(text))
             except Exception:
-                pass  # a TTS failure must never take down the conversation
+                # A TTS failure must not take down the conversation, but it
+                # must never be silent either — a mute Jarvis with no error is
+                # undebuggable.
+                logging.getLogger("jarvis.voice").exception("TTS failed: %r", text[:60])
+                print(f"\n  [voz] fallo al hablar: {text[:50]!r}", flush=True)
             finally:
                 with self._cond:
                     self._pending -= 1
@@ -113,7 +118,7 @@ class Speaker:
             text=text,
             model_id=config.TTS_MODEL,
             output_format="pcm_24000",
-            optimize_streaming_latency=3,
+            optimize_streaming_latency=4,
         )
 
 
