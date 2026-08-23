@@ -1,7 +1,9 @@
 """Jarvis command line.
 
-    jarvis doctor    verify the environment
-    jarvis chat      text REPL against the agent
+    jarvis doctor     verify the environment
+    jarvis chat       text REPL against the agent
+    jarvis voice      spoken conversation
+    jarvis calibrate  tune the microphone thresholds
 """
 
 import argparse
@@ -136,6 +138,48 @@ def chat() -> int:
     return 0
 
 
+# ── voice ────────────────────────────────────────────────────────────────────
+
+def voice(wake: str) -> int:
+    from jarvis.ui import voice as voice_ui
+
+    return voice_ui.run(wake=wake)
+
+
+def calibrate() -> int:
+    """Measure the room so VAD_THRESHOLD is a number, not a guess."""
+    from jarvis.voice.stt import ambient_level
+    from jarvis.voice.wake import measure_clap_headroom
+
+    print("\n  Calibración del micrófono\n")
+    input("  Quédate en silencio y pulsa enter… ")
+    ambient = ambient_level(2.0)
+    print(f"    ruido de fondo: {ambient:.4f}")
+
+    input("\n  Ahora habla normal durante tres segundos, pulsa enter y habla… ")
+    speech = ambient_level(3.0)
+    print(f"    tu voz:         {speech:.4f}")
+
+    input("\n  Ahora da dos palmas, pulsa enter y aplaude… ")
+    clap = measure_clap_headroom(3.0)
+    print(f"    palmas (pico):  {clap:.4f}")
+
+    if speech <= ambient * 1.5:
+        print("\n  \033[31mNo distingo tu voz del ruido de fondo.\033[0m "
+              "Acércate al micro o busca un sitio más silencioso.")
+        return 1
+
+    threshold = round(ambient + (speech - ambient) * 0.35, 4)
+    print(f"\n  Añade esto a tu .env:\n")
+    print(f"    JARVIS_VAD_THRESHOLD={threshold}")
+    if clap > 0.15:
+        print(f"    # palmas ok (pico {clap:.2f}, umbral {config.CLAP_THRESHOLD})")
+    else:
+        print(f"    # palmas flojas (pico {clap:.2f}); usa 'jarvis voice --wake voice'")
+    print()
+    return 0
+
+
 # ── entry point ──────────────────────────────────────────────────────────────
 
 def main() -> int:
@@ -144,13 +188,23 @@ def main() -> int:
         "command",
         nargs="?",
         default="chat",
-        choices=("chat", "doctor", "legacy"),
-        help="chat (default), doctor, or legacy (the old clap demo)",
+        choices=("chat", "voice", "doctor", "calibrate", "legacy"),
+        help="chat (default), voice, doctor, calibrate, or legacy",
+    )
+    parser.add_argument(
+        "--wake",
+        default="voice",
+        choices=("voice", "claps", "enter"),
+        help="how to get Jarvis's attention in voice mode (default: voice)",
     )
     args = parser.parse_args()
 
     if args.command == "doctor":
         return doctor()
+    if args.command == "calibrate":
+        return calibrate()
+    if args.command == "voice":
+        return voice(args.wake)
     if args.command == "legacy":
         return subprocess.call([sys.executable, "-m", "jarvis.legacy.welcome_home"])
     return chat()

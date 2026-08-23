@@ -18,13 +18,21 @@ cp .env.example .env      # then fill in the keys
 ## Use
 
 ```bash
-./run.sh            # text mode (F1)
-./run.sh doctor     # environment check
-./run.sh legacy     # the original clap-to-start demo
+./run.sh                     # text mode
+./run.sh voice               # spoken conversation — just start talking
+./run.sh voice --wake claps  # clap twice to get his attention
+./run.sh voice --wake enter  # press enter to talk
+./run.sh calibrate           # tune the mic threshold for your room
+./run.sh doctor              # environment check
+./run.sh legacy              # the original clap-to-start demo
 ```
 
-Inside the REPL: `/reset` clears context, `/usage` shows token and cache counts,
-`/exit` quits.
+Inside the text REPL: `/reset` clears context, `/usage` shows token and cache
+counts, `/exit` quits. In voice mode, say "adiós" or press Ctrl-C.
+
+Voice needs microphone permission (macOS asks the first time). If Jarvis keeps
+missing you or triggers on room noise, run `./run.sh calibrate` and put the
+suggested `JARVIS_VAD_THRESHOLD` in `.env`.
 
 ## Status
 
@@ -32,8 +40,8 @@ Inside the REPL: `/reset` clears context, `/usage` shows token and cache counts,
 |---|---|---|
 | F0 | Scaffold, config, doctor | done |
 | F1 | Agentic loop — shell, files, memory, web | done |
-| F2 | Permission tiers, audit log, session persistence | next |
-| F3 | Voice — TTS, STT, wake word, barge-in | |
+| F3 | Voice — streaming TTS, VAD speech input, barge-in | done |
+| F2 | Permission tiers, taint tracking, session persistence | next |
 | F4 | Google Calendar, Canvas LMS, native macOS | |
 | F5 | Routines and proactivity | |
 | F6 | Menu bar app | |

@@ -55,6 +55,31 @@ SHELL = os.environ.get("SHELL", "/bin/zsh")
 SHELL_TIMEOUT = 120  # seconds per command
 SHELL_OUTPUT_LIMIT = 30_000  # characters returned to the model
 
+# ── Voice ────────────────────────────────────────────────────────────────────
+VOICE_ID = os.environ.get("JARVIS_VOICE_ID", "JBFqnCBsd6RMkjVDRZzb")  # George
+TTS_MODEL = "eleven_flash_v2_5"   # ~650ms to first audio; multilingual
+STT_MODEL = "scribe_v1"
+STT_LANGUAGE = os.environ.get("JARVIS_LANGUAGE", "spa")
+
+AUDIO_RATE = 24_000               # ElevenLabs pcm_24000, in and out
+AUDIO_BLOCK = 1024
+
+# Voice activity detection, tuned by `jarvis calibrate`
+VAD_THRESHOLD = float(os.environ.get("JARVIS_VAD_THRESHOLD", 0.020))
+VAD_START_MS = 150                # sustained speech needed to open a recording
+VAD_SILENCE_MS = 900              # trailing silence that closes it
+VAD_MAX_MS = 30_000               # hard cap on one utterance
+VAD_MIN_MS = 400                  # shorter than this is a cough, not a sentence
+
+# Barge-in: the mic must beat the estimated echo of our own speakers by this
+# factor before we accept it as Diego interrupting.
+BARGE_IN_FACTOR = 3.0
+BARGE_IN_MS = 250
+
+CLAP_THRESHOLD = 0.25
+CLAP_MIN_GAP = 0.15
+CLAP_MAX_GAP = 1.8
+
 # ── Secrets (read here, never handed to a tool) ──────────────────────────────
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY")

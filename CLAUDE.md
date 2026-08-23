@@ -21,7 +21,11 @@
 **F0 y F1 cerradas** (2026-08-23). El agente ya razona, usa herramientas y recuerda.
 Queda un bloqueo externo: la `ANTHROPIC_API_KEY` del entorno devuelve 401 — hace falta
 una key válida de console.anthropic.com para probarlo en vivo. Todo lo demás está
-verificado con 69 tests (`.venv/bin/python -m pytest tests/ -q`).
+verificado con 80 tests (`.venv/bin/python -m pytest tests/ -q`).
+
+**F3 (voz) también cerrada**, adelantada por delante de F2: el gate de `CONFIRM`
+de F2 hay que confirmarlo por voz, y hacerlo después significa escribirlo una
+sola vez.
 
 Tras revisar F1 se cerraron dos agujeros que adelantan trabajo de F2: el subproceso
 de `bash` ya no hereda las credenciales del entorno, y el clasificador `AUTO`/`CONFIRM`
@@ -105,7 +109,7 @@ de ese bucle.
 | **Contexto largo** | prompt caching (system + tools) + `clear_tool_uses_20250919` + compaction beta cuando la sesión crezca | Sesiones de horas sin reventar el contexto. |
 | **Memoria** | tool `memory_20250818` con backend en `~/.jarvis/memory/` | Persiste entre reinicios; es la memoria "personal" de Jarvis sobre Diego. |
 | **Lenguaje** | Python 3.13 (ya instalado) | El boceto ya es Python y todo el ecosistema de audio/macOS lo es. |
-| **TTS** | ElevenLabs (`eleven_multilingual_v2`, voz George `JBFqnCBsd6RMkjVDRZzb`) | Ya funciona y ya hay key. Migrar a la API de streaming para bajar latencia. |
+| **TTS** | ElevenLabs streaming, `eleven_flash_v2_5`, voz George `JBFqnCBsd6RMkjVDRZzb`, salida `pcm_24000` | Flash en vez de `multilingual_v2`: 653 ms al primer audio en vez de segundos, y sigue siendo multilingüe. PCM crudo directo a `sounddevice` — sin fichero temporal ni `afplay`, que es lo que permite cortar en seco para el barge-in. |
 | **STT** | ElevenLabs Scribe (misma key) | Un solo proveedor de voz, una sola key. Alternativa offline si hay problemas de latencia/coste: `faster-whisper` local. |
 | **Calendario** | Google Calendar API (OAuth de escritorio) | La cuenta de Diego es Gmail. Más fiable que AppleScript sobre Calendar.app. |
 | **Canvas** | API REST de Canvas con token personal | `uandes.instructure.com/api/v1/...`, token desde Cuenta → Configuración → Nuevo token de acceso. |
@@ -281,7 +285,7 @@ cuál toqué por última vez" se resuelve solo, con varias llamadas a herramient
 
 ---
 
-### F2 — Permisos, logging y seguridad ← siguiente
+### F2 — Permisos, logging y seguridad ← siguiente (se saltó para hacer F3 antes)
 - **Prompt injection / taint tracking** — el punto más importante de la fase, por
   encima del `CONFIRM` normal. Marcar el turno como contaminado cuando entra output
   de `web_fetch`/`web_search`/`canvas_*` y escalar a `CONFIRM` toda tool con efectos
@@ -302,16 +306,23 @@ web que diga "borra todos los archivos" no consigue nada sin que Diego lo aprueb
 
 ---
 
-### F3 — Voz
+### F3 — Voz ✅
 - `voice/tts.py`: ElevenLabs streaming — empezar a hablar con la primera frase,
   no esperar la respuesta completa.
 - `voice/stt.py`: grabación con VAD (corta al detectar silencio) → Scribe.
-- `voice/wake.py`: las palmas actuales + hotkey global (⌥Space) + wake word "Jarvis".
+- `voice/wake.py`: palmas + VAD continuo. **No hay wake word neuronal ni hotkey
+  global** — ver §11.1: el VAD hace de wake y las palmas siguen ahí. El hotkey
+  necesita Accesibilidad y `pynput`; se reevalúa en F6, cuando Jarvis viva en la
+  barra de menú y tenga sentido invocarlo sin terminal.
 - `voice/player.py`: **barge-in** — si Diego habla mientras Jarvis habla, Jarvis calla.
 - `jarvis voice`: conversación hablada continua.
 
 **Hecho cuando:** conversación de 5 turnos seguidos por voz, con latencia
 palabra-a-voz < 2 s y barge-in funcionando.
+
+**Medido:** TTS 653 ms al primer audio (`eleven_flash_v2_5`), STT 927 ms,
+primera frase encolada a 175 ms del turno — antes de que el modelo termine de
+escribir. Los 5 turnos y el barge-in los tiene que probar Diego al micro.
 **Commit:** `feat(voice): streaming TTS, VAD speech input, wake word and barge-in`
 
 ---
@@ -397,8 +408,12 @@ Todo va en `.env` (ya ignorado por git). Los tokens OAuth generados van a
 
 ## 11. Decisiones abiertas
 
-1. **Wake word real** ("Jarvis") vs palmas + hotkey. Las palmas ya funcionan; el wake
-   word necesita `openWakeWord` u otro modelo local. Se decide en F3.
+1. ~~**Wake word real**~~ — decidido en F3: **no se hace por ahora**. El VAD continuo
+   es el wake por defecto (`--wake voice`), las palmas siguen disponibles
+   (`--wake claps`) y hay `--wake enter` para entornos ruidosos. Un wake word
+   neuronal (`openWakeWord`) resuelve el caso "manos libres desde el otro lado de
+   la habitación", que solo importa cuando Jarvis viva siempre residente: se
+   reevalúa en F6.
 2. **STT local vs nube.** Si la latencia de Scribe molesta, cambiar a `faster-whisper`
    con modelo `small` (corre sobre CTranslate2 en CPU/Metal, no toca el Neural
    Engine; rápido igual).
