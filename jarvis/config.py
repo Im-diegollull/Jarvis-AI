@@ -67,6 +67,13 @@ VOICE_ID = os.environ.get("JARVIS_VOICE_ID", "JBFqnCBsd6RMkjVDRZzb")  # George
 TTS_MODEL = "eleven_flash_v2_5"   # ~650ms to first audio; multilingual
 STT_MODEL = "scribe_v1"
 STT_LANGUAGE = os.environ.get("JARVIS_LANGUAGE", "spa")
+# Without this the model applies English phonetics to Spanish text — the main
+# reason Jarvis sounded like an Englishman reading Spanish out loud.
+TTS_LANGUAGE = os.environ.get("JARVIS_TTS_LANGUAGE", "es")
+# macOS fallback when ElevenLabs is out of quota, unreachable or unconfigured.
+# Native Mexican Spanish, offline, unlimited. Robotic, but a robotic Jarvis
+# beats a mute one — running out of characters must not look like a crash.
+TTS_FALLBACK_VOICE = os.environ.get("JARVIS_FALLBACK_VOICE", "Paulina")
 
 AUDIO_RATE = 24_000               # ElevenLabs pcm_24000, in and out
 AUDIO_BLOCK = 1024

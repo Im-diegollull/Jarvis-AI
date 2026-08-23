@@ -9,6 +9,8 @@ finished writing, the first sentence is already in the air.
 import logging
 import queue
 import re
+import shutil
+import subprocess
 import threading
 
 from elevenlabs.client import ElevenLabs
@@ -32,6 +34,7 @@ class Speaker:
         # setting the flag would leave wait() returning while audio is queued.
         self._pending = 0
         self._cond = threading.Condition()
+        self._degraded = not config.ELEVENLABS_API_KEY
         self._worker = threading.Thread(target=self._run, daemon=True)
         self._worker.start()
 
@@ -100,17 +103,34 @@ class Speaker:
             text = self._queue.get()
             try:
                 if text:
-                    self.player.play(self._stream(text))
-            except Exception:
-                # A TTS failure must not take down the conversation, but it
-                # must never be silent either — a mute Jarvis with no error is
-                # undebuggable.
-                logging.getLogger("jarvis.voice").exception("TTS failed: %r", text[:60])
-                print(f"\n  [voz] fallo al hablar: {text[:50]!r}", flush=True)
+                    if self._degraded:
+                        _say_offline(text)
+                    else:
+                        self.player.play(self._stream(text))
+            except Exception as exc:
+                # Never silent: a mute Jarvis with no error is undebuggable.
+                logging.getLogger("jarvis.voice").warning("TTS failed: %s", exc)
+                self._degrade(exc)
+                try:
+                    _say_offline(text)
+                except Exception:
+                    print(f"\n  [voz] no pude hablar: {text[:50]!r}", flush=True)
             finally:
                 with self._cond:
                     self._pending -= 1
                     self._cond.notify_all()
+
+    def _degrade(self, exc: Exception) -> None:
+        """Switch to the offline voice for the rest of the session."""
+        if self._degraded:
+            return
+        self._degraded = True
+        reason = "sin cuota" if "quota" in str(exc).lower() or "401" in str(exc) else "sin conexión"
+        print(
+            f"\n  [voz] ElevenLabs {reason} — sigo con la voz del sistema "
+            f"({config.TTS_FALLBACK_VOICE}).",
+            flush=True,
+        )
 
     def _stream(self, text: str):
         return self.client.text_to_speech.stream(
@@ -118,6 +138,7 @@ class Speaker:
             text=text,
             model_id=config.TTS_MODEL,
             output_format="pcm_24000",
+            language_code=config.TTS_LANGUAGE,
             optimize_streaming_latency=4,
         )
 
@@ -140,6 +161,18 @@ def _next_sentence(buffer: str) -> tuple[str | None, str]:
 _MARKDOWN = re.compile(r"[*_`#>]+")
 _LINK = re.compile(r"https?://\S+")
 _BULLET = re.compile(r"^\s*[-•*]\s+", re.MULTILINE)
+
+
+def _say_offline(text: str) -> None:
+    """macOS `say`. Blocks until spoken; no streaming, but it always works."""
+    binary = shutil.which("say")
+    if not binary:
+        raise RuntimeError("macOS `say` not available")
+    subprocess.run(
+        [binary, "-v", config.TTS_FALLBACK_VOICE, text],
+        check=True,
+        timeout=120,
+    )
 
 
 def _spoken(text: str) -> str:

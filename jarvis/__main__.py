@@ -71,7 +71,23 @@ def doctor() -> int:
     )
     _check("workspace root", config.WORKSPACE_ROOT.is_dir(), str(config.WORKSPACE_ROOT))
 
-    for binary, note in (("osascript", "macOS automation"), ("yt-dlp", "music, F5")):
+    if config.ELEVENLABS_API_KEY:
+        try:
+            from elevenlabs.client import ElevenLabs
+
+            sub = ElevenLabs(api_key=config.ELEVENLABS_API_KEY).user.subscription.get()
+            left = sub.character_limit - sub.character_count
+            _check(
+                "ElevenLabs quota",
+                left > 1000,
+                f"{left:,} characters left on the {sub.tier} plan"
+                + ("" if left > 1000 else f" — falls back to `say -v {config.TTS_FALLBACK_VOICE}`"),
+            )
+        except Exception as exc:
+            _check("ElevenLabs quota", False, f"{type(exc).__name__}")
+
+    for binary, note in (("osascript", "macOS automation"), ("yt-dlp", "music, F5"),
+                         ("say", "offline voice fallback")):
         _check(f"{binary}", shutil.which(binary) is not None, note)
 
     if anthropic and config.ANTHROPIC_API_KEY:
