@@ -19,7 +19,7 @@ import os
 from dotenv import load_dotenv
 from elevenlabs.client import ElevenLabs
 
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
 
 _eleven      = ElevenLabs(api_key=os.environ["ELEVENLABS_API_KEY"])
 JARVIS_VOICE = "JBFqnCBsd6RMkjVDRZzb"   # George — British, deep (free tier)
